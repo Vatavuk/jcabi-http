@@ -5,6 +5,7 @@ import com.jcabi.http.ImmutableHeader;
 import com.jcabi.http.Request;
 import com.jcabi.http.Response;
 import com.jcabi.http.Wire;
+import com.sun.deploy.util.StringUtils;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
 
@@ -12,6 +13,7 @@ import javax.ws.rs.core.HttpHeaders;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.*;
@@ -102,13 +104,24 @@ public class DigestAuthWire implements Wire {
             //TODO: construct entire header
             return new ImmutableHeader(HttpHeaders.AUTHORIZATION, "");
         }
+
+        private static byte[] hashA1(final WwwAuthHeader header, final String username, final String password)
+            throws NoSuchAlgorithmException {
+            final MessageDigest md = header.md();
+            md.update(StringUtils.join(Arrays.asList(username, header.realm(), password), ":")
+                .getBytes(StandardCharsets.UTF_8));
+            if (header.md5sess()) {
+                //TODO: md5sess calculation
+            }
+            return md.digest();
+        }
     }
 
     private static final class WwwAuthHeader {
 
         private final Map<String, String> tokens;
 
-        public WwwAuthHeader(HeaderTokens tokens) {
+        public WwwAuthHeader(final HeaderTokens tokens) {
             this.tokens = tokens.asMap();
         }
 
@@ -141,6 +154,7 @@ public class DigestAuthWire implements Wire {
                 .equals(tokens.get("qop")));
         }
 
+        //TODO: cache this method
         public MessageDigest md() throws NoSuchAlgorithmException {
             return MessageDigest.getInstance(md5sess() ? "MD5-sess" : "MD5");
         }
@@ -158,7 +172,7 @@ public class DigestAuthWire implements Wire {
 
         private final List<String> header;
 
-        public HeaderTokens(List<String> header) {
+        public HeaderTokens(final List<String> header) {
             this.header = header;
         }
 
