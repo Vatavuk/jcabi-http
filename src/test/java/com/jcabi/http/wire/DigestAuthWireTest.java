@@ -71,8 +71,8 @@ public class DigestAuthWireTest {
     public void testHeader() throws Exception {
         final MkContainer container = new MkGrizzlyContainer().next(
             new MkAnswer.Simple(HttpStatus.SC_UNAUTHORIZED, "")
-                .withHeader(HttpHeaders.WWW_AUTHENTICATE, "Digest realm=\"Members only\", nonce=\"LHOKe1l2BAA=5c373ae0d933a0bb6321125a56a2fcdb6fd7c93b\", "
-                    + "algorithm=\"MD5\", qop=\"auth\"/")
+                .withHeader(HttpHeaders.WWW_AUTHENTICATE, "Digest realm=\"Members only\", nonce=\"LHOKe1l2BAA=5c373ae0d933a0bb6321125a56a2fcdb6fd7c93b\", \n"
+                    + "algorithm=MD5, qop=\"auth\" ")
         ).start();
         final String expectedHeader = expectHeader(
             this.username,

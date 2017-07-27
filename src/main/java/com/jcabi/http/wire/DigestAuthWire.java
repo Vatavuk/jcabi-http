@@ -12,10 +12,7 @@ import javax.ws.rs.core.HttpHeaders;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
-import java.util.Collection;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * Wire with HTTP digest authentication based on provided user credentials.
@@ -69,13 +66,13 @@ public class DigestAuthWire implements Wire {
         final Collection<Map.Entry<String, String>> headers, final InputStream content, final int connect,
         final int read) throws IOException {
 
-        Response response = this.origin.send(req, home, method, headers, content, connect, read);
+        final Response response = this.origin.send(req, home, method, headers, content, connect, read);
 
         if (response.status() == HttpURLConnection.HTTP_UNAUTHORIZED && response.headers()
             .containsKey(HttpHeaders.WWW_AUTHENTICATE)) {
+            final List<String> wwAuthenticate = response.headers().get(HttpHeaders.WWW_AUTHENTICATE);
             Map.Entry<String, String> hdr = new AuthorizationHeader(
-                new AuthenticationHeader(response.headers().get(HttpHeaders.WWW_AUTHENTICATE)), username, password)
-                .header();
+                new AuthenticationHeader(new HeaderTokens(wwAuthenticate)), username, password).header();
             final Collection<Map.Entry<String, String>> hdrs = new LinkedList<>();
             hdrs.add(hdr);
             for (final Map.Entry<String, String> header : headers) {
@@ -83,7 +80,6 @@ public class DigestAuthWire implements Wire {
             }
             return this.origin.send(req, home, method, hdrs, content, connect, read);
         }
-
         return response;
     }
 
@@ -100,28 +96,76 @@ public class DigestAuthWire implements Wire {
         }
 
         public Map.Entry<String, String> header() {
-            //TODO: build entire header
+
+            //TODO: construct entire header
             return new ImmutableHeader(HttpHeaders.AUTHORIZATION, "");
         }
     }
 
     private static final class AuthenticationHeader {
 
-        private final ImmutableHeader header;
+        private final Map<String, String> tokens;
 
-        public AuthenticationHeader(final List<String> header) {
-            this.header = new ImmutableHeader(HttpHeaders.WWW_AUTHENTICATE, header.get(0));
+        public AuthenticationHeader(HeaderTokens tokens) {
+            this.tokens = tokens.asMap();
         }
 
-        public String algorithm() {
-            //TODO: return algorithm part from header
-            return "";
+        public String realm() {
+            return tokens.get("realm");
         }
 
-        private static String unq(String value) {
-            //TODO: extract value from header
-            return "";
+        public String nonce() {
+            return tokens.get("nonce");
         }
 
+        public String cnonce() {
+            return tokens.get("cnonce");
+        }
+
+        public boolean hasCnonce() {
+            return tokens.containsKey("cnonce");
+        }
+
+        public String nc() {
+            return tokens.get("nc");
+        }
+
+        public String qop() {
+            return tokens.get("qop");
+        }
+
+        public boolean hasQop() {
+            return tokens.containsKey("qop") && (tokens.get("qop").equals("auth") || tokens.get("qop")
+                .equals("auth-int"));
+        }
+
+        public boolean md5Sess() {
+            return tokens.containsKey("algorithm") && tokens.get("algorithm").equals("MD5-sess");
+        }
+
+        public boolean opaque() {
+            return tokens.containsKey("opaque");
+        }
+    }
+
+    private static final class HeaderTokens {
+
+        private final List<String> header;
+
+        public HeaderTokens(List<String> header) {
+            this.header = header;
+        }
+
+        //TODO: maybe use regex instead of substring abuse
+        public Map<String, String> asMap() {
+            final Map<String, String> tokens = new HashMap<>();
+            for (String token : header.get(0).trim().substring(6).split(",")) {
+                //TODO: trim quotes instead of replacing all \"
+                tokens.put(token.substring(0, token.indexOf("=")).trim(),
+                    token.substring(token.indexOf("=") + 1).trim().replaceAll("/(?:(?:\r\n)?[ \t])+/g", "")
+                        .replaceAll("\"", ""));
+            }
+            return tokens;
+        }
     }
 }
