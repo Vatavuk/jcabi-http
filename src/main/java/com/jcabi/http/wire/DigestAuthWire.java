@@ -12,6 +12,8 @@ import javax.ws.rs.core.HttpHeaders;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.*;
 
 /**
@@ -71,8 +73,8 @@ public class DigestAuthWire implements Wire {
         if (response.status() == HttpURLConnection.HTTP_UNAUTHORIZED && response.headers()
             .containsKey(HttpHeaders.WWW_AUTHENTICATE)) {
             final List<String> wwAuthenticate = response.headers().get(HttpHeaders.WWW_AUTHENTICATE);
-            Map.Entry<String, String> hdr = new AuthorizationHeader(
-                new AuthenticationHeader(new HeaderTokens(wwAuthenticate)), username, password).header();
+            Map.Entry<String, String> hdr = new AuthHeader(new WwwAuthHeader(new HeaderTokens(wwAuthenticate)),
+                username, password).header();
             final Collection<Map.Entry<String, String>> hdrs = new LinkedList<>();
             hdrs.add(hdr);
             for (final Map.Entry<String, String> header : headers) {
@@ -83,13 +85,13 @@ public class DigestAuthWire implements Wire {
         return response;
     }
 
-    private static final class AuthorizationHeader {
+    private static final class AuthHeader {
 
-        private final AuthenticationHeader header;
+        private final WwwAuthHeader header;
         private final String username;
         private final String password;
 
-        public AuthorizationHeader(final AuthenticationHeader header, final String username, final String password) {
+        public AuthHeader(final WwwAuthHeader header, final String username, final String password) {
             this.header = header;
             this.username = username;
             this.password = password;
@@ -102,11 +104,11 @@ public class DigestAuthWire implements Wire {
         }
     }
 
-    private static final class AuthenticationHeader {
+    private static final class WwwAuthHeader {
 
         private final Map<String, String> tokens;
 
-        public AuthenticationHeader(HeaderTokens tokens) {
+        public WwwAuthHeader(HeaderTokens tokens) {
             this.tokens = tokens.asMap();
         }
 
@@ -135,12 +137,16 @@ public class DigestAuthWire implements Wire {
         }
 
         public boolean hasQop() {
-            return tokens.containsKey("qop") && (tokens.get("qop").equals("auth") || tokens.get("qop")
-                .equals("auth-int"));
+            return tokens.containsKey("qop") && ("auth".equals(tokens.get("qop")) || "auth-int"
+                .equals(tokens.get("qop")));
         }
 
-        public boolean md5Sess() {
-            return tokens.containsKey("algorithm") && tokens.get("algorithm").equals("MD5-sess");
+        public MessageDigest md() throws NoSuchAlgorithmException {
+            return MessageDigest.getInstance(md5sess() ? "MD5-sess" : "MD5");
+        }
+
+        public boolean md5sess() {
+            return tokens.containsKey("algorithm") && "md5-sess".equals(tokens.get("algorithm"));
         }
 
         public boolean opaque() {
@@ -161,7 +167,7 @@ public class DigestAuthWire implements Wire {
             final Map<String, String> tokens = new HashMap<>();
             for (String token : header.get(0).trim().substring(6).split(",")) {
                 //TODO: trim quotes instead of replacing all \"
-                tokens.put(token.substring(0, token.indexOf("=")).trim(),
+                tokens.put(token.substring(0, token.indexOf("=")).trim().toLowerCase(),
                     token.substring(token.indexOf("=") + 1).trim().replaceAll("/(?:(?:\r\n)?[ \t])+/g", "")
                         .replaceAll("\"", ""));
             }
