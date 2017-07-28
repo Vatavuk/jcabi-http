@@ -1,10 +1,7 @@
 package com.jcabi.http.wire;
 
 import com.jcabi.aspects.Immutable;
-import com.jcabi.http.ImmutableHeader;
-import com.jcabi.http.Request;
-import com.jcabi.http.Response;
-import com.jcabi.http.Wire;
+import com.jcabi.http.*;
 import com.sun.deploy.util.StringUtils;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
@@ -76,7 +73,7 @@ public class DigestAuthWire implements Wire {
             .containsKey(HttpHeaders.WWW_AUTHENTICATE)) {
             final List<String> wwAuthenticate = response.headers().get(HttpHeaders.WWW_AUTHENTICATE);
             Map.Entry<String, String> hdr = new AuthHeader(new WwwAuthHeader(new HeaderTokens(wwAuthenticate)),
-                username, password).header();
+                username, password, method, req.uri()).header();
             final Collection<Map.Entry<String, String>> hdrs = new LinkedList<>();
             hdrs.add(hdr);
             for (final Map.Entry<String, String> header : headers) {
@@ -92,11 +89,16 @@ public class DigestAuthWire implements Wire {
         private final WwwAuthHeader header;
         private final String username;
         private final String password;
+        private final String method;
+        private final RequestURI uri;
 
-        public AuthHeader(final WwwAuthHeader header, final String username, final String password) {
+        public AuthHeader(final WwwAuthHeader header, final String username, final String password, final String method,
+            final RequestURI uri) {
             this.header = header;
             this.username = username;
             this.password = password;
+            this.method = method;
+            this.uri = uri;
         }
 
         public Map.Entry<String, String> header() {
@@ -105,15 +107,35 @@ public class DigestAuthWire implements Wire {
             return new ImmutableHeader(HttpHeaders.AUTHORIZATION, "");
         }
 
-        private static byte[] hashA1(final WwwAuthHeader header, final String username, final String password)
-            throws NoSuchAlgorithmException {
+        private String response() throws NoSuchAlgorithmException {
             final MessageDigest md = header.md();
-            md.update(StringUtils.join(Arrays.asList(username, header.realm(), password), ":")
-                .getBytes(StandardCharsets.UTF_8));
-            if (header.md5sess()) {
-                //TODO: md5sess calculation
+            if (header.hasQop()) {
+                md.update(join(hashA1(md), header.nonce(), header.nc(), header.cnonce(), header.qop(), hashA2(md)));
+            } else {
+                md.update(join(hashA1(md), header.nonce(), hashA2(md)));
             }
-            return md.digest();
+            return stringify(md.digest());
+        }
+
+        private String hashA1(final MessageDigest md) throws NoSuchAlgorithmException {
+            md.update(join(username, header.realm(), password));
+            if (header.md5sess()) {
+                md.update(join(stringify(md.digest()), header.nonce(), header.cnonce()));
+            }
+            return stringify(md.digest());
+        }
+
+        private String hashA2(final MessageDigest md) throws NoSuchAlgorithmException {
+            md.update(join(method, uri.get().getRawPath()));
+            return stringify(md.digest());
+        }
+
+        private static byte[] join(String... values) {
+            return StringUtils.join(Arrays.asList(values), ":").getBytes(StandardCharsets.UTF_8);
+        }
+
+        private static String stringify(byte[] bytes) {
+            return new String(bytes, StandardCharsets.UTF_8);
         }
     }
 
@@ -154,7 +176,6 @@ public class DigestAuthWire implements Wire {
                 .equals(tokens.get("qop")));
         }
 
-        //TODO: cache this method
         public MessageDigest md() throws NoSuchAlgorithmException {
             return MessageDigest.getInstance(md5sess() ? "MD5-sess" : "MD5");
         }
