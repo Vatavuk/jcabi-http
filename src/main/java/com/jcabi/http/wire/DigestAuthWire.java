@@ -67,34 +67,34 @@ public class DigestAuthWire implements Wire {
         final Collection<Map.Entry<String, String>> headers, final InputStream content, final int connect,
         final int read) throws IOException {
 
-        final Response response = this.origin.send(req, home, method, headers, content, connect, read);
+        Response response = this.origin.send(req, home, method, headers, content, connect, read);
 
         if (response.status() == HttpURLConnection.HTTP_UNAUTHORIZED && response.headers()
             .containsKey(HttpHeaders.WWW_AUTHENTICATE)) {
             final List<String> wwAuthenticate = response.headers().get(HttpHeaders.WWW_AUTHENTICATE);
-            Map.Entry<String, String> hdr = new AuthHeader(new WwwAuthHeader(new HeaderTokens(wwAuthenticate)),
-                username, password, method, req.uri()).header();
+            final Map.Entry<String, String> hdr = new AuthHeader(new HeaderTokens(wwAuthenticate), username, password,
+                method, req.uri()).header();
             final Collection<Map.Entry<String, String>> hdrs = new LinkedList<>();
             hdrs.add(hdr);
             for (final Map.Entry<String, String> header : headers) {
                 hdrs.add(header);
             }
-            return this.origin.send(req, home, method, hdrs, content, connect, read);
+            response = this.origin.send(req, home, method, hdrs, content, connect, read);
         }
         return response;
     }
 
     private static final class AuthHeader {
 
-        private final WwwAuthHeader header;
+        private final Map<String, String> tokens;
         private final String username;
         private final String password;
         private final String method;
         private final RequestURI uri;
 
-        public AuthHeader(final WwwAuthHeader header, final String username, final String password, final String method,
+        public AuthHeader(final HeaderTokens header, final String username, final String password, final String method,
             final RequestURI uri) {
-            this.header = header;
+            this.tokens = header.tokens();
             this.username = username;
             this.password = password;
             this.method = method;
@@ -102,25 +102,24 @@ public class DigestAuthWire implements Wire {
         }
 
         public Map.Entry<String, String> header() {
-
             //TODO: construct entire header
             return new ImmutableHeader(HttpHeaders.AUTHORIZATION, "");
         }
 
         private String response() throws NoSuchAlgorithmException {
-            final MessageDigest md = header.md();
-            if (header.hasQop()) {
-                md.update(join(hashA1(md), header.nonce(), header.nc(), header.cnonce(), header.qop(), hashA2(md)));
+            final MessageDigest md = md();
+            if (hasQop()) {
+                md.update(join(hashA1(md), nonce(), nc(), cnonce(), qop(), hashA2(md)));
             } else {
-                md.update(join(hashA1(md), header.nonce(), hashA2(md)));
+                md.update(join(hashA1(md), nonce(), hashA2(md)));
             }
             return stringify(md.digest());
         }
 
         private String hashA1(final MessageDigest md) throws NoSuchAlgorithmException {
-            md.update(join(username, header.realm(), password));
-            if (header.md5sess()) {
-                md.update(join(stringify(md.digest()), header.nonce(), header.cnonce()));
+            md.update(join(username, realm(), password));
+            if (md5sess()) {
+                md.update(join(stringify(md.digest()), nonce(), cnonce()));
             }
             return stringify(md.digest());
         }
@@ -130,6 +129,47 @@ public class DigestAuthWire implements Wire {
             return stringify(md.digest());
         }
 
+        private String realm() {
+            return tokens.get("realm");
+        }
+
+        private String nonce() {
+            return tokens.get("nonce");
+        }
+
+        private String cnonce() {
+            return tokens.get("cnonce");
+        }
+
+        private boolean hasCnonce() {
+            return tokens.containsKey("cnonce");
+        }
+
+        private String nc() {
+            return tokens.get("nc");
+        }
+
+        private String qop() {
+            return tokens.get("qop");
+        }
+
+        private boolean hasQop() {
+            return tokens.containsKey("qop") && ("auth".equals(tokens.get("qop")) || "auth-int"
+                .equals(tokens.get("qop")));
+        }
+
+        private MessageDigest md() throws NoSuchAlgorithmException {
+            return MessageDigest.getInstance(md5sess() ? "MD5-sess" : "MD5");
+        }
+
+        private boolean md5sess() {
+            return tokens.containsKey("algorithm") && "md5-sess".equals(tokens.get("algorithm"));
+        }
+
+        private boolean opaque() {
+            return tokens.containsKey("opaque");
+        }
+
         private static byte[] join(String... values) {
             return StringUtils.join(Arrays.asList(values), ":").getBytes(StandardCharsets.UTF_8);
         }
@@ -137,56 +177,7 @@ public class DigestAuthWire implements Wire {
         private static String stringify(byte[] bytes) {
             return new String(bytes, StandardCharsets.UTF_8);
         }
-    }
 
-    private static final class WwwAuthHeader {
-
-        private final Map<String, String> tokens;
-
-        public WwwAuthHeader(final HeaderTokens tokens) {
-            this.tokens = tokens.asMap();
-        }
-
-        public String realm() {
-            return tokens.get("realm");
-        }
-
-        public String nonce() {
-            return tokens.get("nonce");
-        }
-
-        public String cnonce() {
-            return tokens.get("cnonce");
-        }
-
-        public boolean hasCnonce() {
-            return tokens.containsKey("cnonce");
-        }
-
-        public String nc() {
-            return tokens.get("nc");
-        }
-
-        public String qop() {
-            return tokens.get("qop");
-        }
-
-        public boolean hasQop() {
-            return tokens.containsKey("qop") && ("auth".equals(tokens.get("qop")) || "auth-int"
-                .equals(tokens.get("qop")));
-        }
-
-        public MessageDigest md() throws NoSuchAlgorithmException {
-            return MessageDigest.getInstance(md5sess() ? "MD5-sess" : "MD5");
-        }
-
-        public boolean md5sess() {
-            return tokens.containsKey("algorithm") && "md5-sess".equals(tokens.get("algorithm"));
-        }
-
-        public boolean opaque() {
-            return tokens.containsKey("opaque");
-        }
     }
 
     private static final class HeaderTokens {
@@ -198,7 +189,7 @@ public class DigestAuthWire implements Wire {
         }
 
         //TODO: maybe use regex instead of substring abuse
-        public Map<String, String> asMap() {
+        public Map<String, String> tokens() {
             final Map<String, String> tokens = new HashMap<>();
             for (String token : header.get(0).trim().substring(6).split(",")) {
                 //TODO: trim quotes instead of replacing all \"
