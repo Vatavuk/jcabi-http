@@ -10,6 +10,7 @@ import javax.ws.rs.core.HttpHeaders;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
+import java.net.ProtocolException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -92,9 +93,9 @@ public class DigestAuthWire implements Wire {
         private final String method;
         private final RequestURI uri;
 
-        public AuthHeader(final HeaderTokens header, final String username, final String password, final String method,
-            final RequestURI uri) {
-            this.tokens = header.tokens();
+        public AuthHeader(final HeaderTokens tokens, final String username, final String password, final String method,
+            final RequestURI uri) throws ProtocolException {
+            this.tokens = new ValidWwwAuthTokens(tokens).asMap();
             this.username = username;
             this.password = password;
             this.method = method;
@@ -102,8 +103,10 @@ public class DigestAuthWire implements Wire {
         }
 
         public Map.Entry<String, String> header() {
-            //TODO: construct entire header
-            return new ImmutableHeader(HttpHeaders.AUTHORIZATION, "");
+            //TODO: implement the whole header
+            String value = String.format("Digest username=\"%s\", realm=\"%s\", nonce=\"%s\"");
+
+            return new ImmutableHeader(HttpHeaders.AUTHORIZATION, value);
         }
 
         private String response() throws NoSuchAlgorithmException {
@@ -180,6 +183,23 @@ public class DigestAuthWire implements Wire {
 
     }
 
+    private static final class ValidWwwAuthTokens {
+
+        private final HeaderTokens tokens;
+
+        public ValidWwwAuthTokens(final HeaderTokens tokens) {
+            this.tokens = tokens;
+        }
+
+        public Map<String, String> asMap() throws ProtocolException{
+            final Map<String, String> map = tokens.asMap();
+            if(map.containsKey("realm") && map.containsKey("nonce")) {
+                return map;
+            }
+            throw new ProtocolException("WwwAuthentication header not valid");
+        }
+    }
+
     private static final class HeaderTokens {
 
         private final List<String> header;
@@ -189,7 +209,7 @@ public class DigestAuthWire implements Wire {
         }
 
         //TODO: maybe use regex instead of substring abuse
-        public Map<String, String> tokens() {
+        public Map<String, String> asMap() {
             final Map<String, String> tokens = new HashMap<>();
             for (String token : header.get(0).trim().substring(6).split(",")) {
                 //TODO: trim quotes instead of replacing all \"
